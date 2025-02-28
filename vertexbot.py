@@ -7,7 +7,7 @@ import google.generativeai as genai
 import nltk
 
 # --- Setup Gemini API Key (Hardcoded) ---
-genai.configure(api_key="AIzaSyCqnWlz14eNWFxAcNycKtHTCHQj_t_u-FU")
+genai.configure(api_key="")
 
 # --- Download necessary NLTK packages ---
 nltk.download('punkt')
