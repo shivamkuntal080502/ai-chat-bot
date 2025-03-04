@@ -7,7 +7,16 @@ import google.generativeai as genai
 import nltk
 import re
 import threading
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from plyer import notification  # Desktop notification library
+
+# --- Email Configuration (Update these with your credentials) ---
+EMAIL_SENDER = ""       # Replace with your sender email
+EMAIL_PASSWORD = ""            # Replace with your email password or app-specific password
+SMTP_SERVER = "smtp.gmail.com"              # For Gmail; change if using another provider
+SMTP_PORT = 465                             # For Gmail SMTP SSL
 
 # --- Setup Gemini API Key (Hardcoded) ---
 genai.configure(api_key="")
@@ -62,6 +71,8 @@ def get_system_prompt(user_name):
             "Do not include your name in your responses.")
 
 # --- Notification System Functions ---
+
+# Desktop notification using plyer
 def send_notification(title, message):
     notification.notify(
         title=title,
@@ -74,10 +85,31 @@ def schedule_notification(reminder_time, task):
     current_time = datetime.datetime.now()
     delay = (reminder_time - current_time).total_seconds()
     if delay < 0:
-        # If the time has already passed, trigger immediately.
         delay = 0
-    # Schedule the notification in a background thread.
+    # Schedule the desktop notification in a background thread.
     threading.Timer(delay, lambda: send_notification("Reminder", task)).start()
+
+# Email notification function using SMTP
+def send_email_notification(user_email, subject, message):
+    msg = MIMEMultipart()
+    msg["From"] = EMAIL_SENDER
+    msg["To"] = user_email
+    msg["Subject"] = subject
+    msg.attach(MIMEText(message, "plain"))
+    try:
+        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
+            server.login(EMAIL_SENDER, EMAIL_PASSWORD)
+            server.send_message(msg)
+    except Exception as e:
+        print(f"Error sending email: {e}")
+
+def schedule_email_notification(reminder_time, task, user_email):
+    current_time = datetime.datetime.now()
+    delay = (reminder_time - current_time).total_seconds()
+    if delay < 0:
+        delay = 0
+    # Schedule the email notification in a background thread.
+    threading.Timer(delay, lambda: send_email_notification(user_email, "Reminder", f"Reminder: {task}")).start()
 
 def parse_reminder(message):
     """
@@ -153,7 +185,7 @@ def main():
             - Type your query or command in the text box.
             - Special commands you can try:
                 - `joke` - Ask for a joke.
-                - `remind me to [task] at [HH:MM]` - Set a reminder.
+                - `remind me to [task] at [HH:MM]` - Set a reminder (both desktop & email).
             """
         )
         if st.button("Clear Conversation"):
@@ -163,6 +195,8 @@ def main():
     # -------------------- Session State Initialization --------------------
     if 'user_name' not in st.session_state:
         st.session_state.user_name = None
+    if 'user_email' not in st.session_state:
+        st.session_state.user_email = None
     if 'messages' not in st.session_state:
         st.session_state.messages = []  # Each message is a tuple: (speaker, message)
 
@@ -179,6 +213,17 @@ def main():
                 safe_rerun()
             else:
                 st.error("Please enter a valid name.")
+        st.stop()
+
+    # -------------------- Ask for the User's Email (for email notifications) --------------------
+    if not st.session_state.user_email:
+        email_input = st.text_input("Please enter your email for notifications:", key="email_input")
+        if st.button("Set Email"):
+            if email_input.strip() != "":
+                st.session_state.user_email = email_input.strip()
+                safe_rerun()
+            else:
+                st.error("Please enter a valid email address.")
         st.stop()
 
     # -------------------- Chat Conversation Area --------------------
@@ -207,7 +252,10 @@ def main():
             task, reminder_time = parse_reminder(user_message)
             if task and reminder_time:
                 schedule_notification(reminder_time, task)
-                response = f"Okay, I will remind you to {task} at {reminder_time.strftime('%H:%M')}."
+                # Schedule email notification using the provided email.
+                schedule_email_notification(reminder_time, task, st.session_state.user_email)
+                response = (f"Okay, I will remind you to {task} at {reminder_time.strftime('%H:%M')} "
+                            f"via desktop notification and an email to {st.session_state.user_email}.")
             else:
                 response = "I couldn't understand the reminder. Please use the format: 'remind me to [task] at [HH:MM]'."
         else:
