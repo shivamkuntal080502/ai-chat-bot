@@ -47,7 +47,7 @@ def get_joke():
 # Function to generate responses using Gemini AI (Vertex bot)
 def generate_api_response(prompt):
     try:
-        model = genai.GenerativeModel("gemini-pro")  # Using Gemini-Pro model
+        model = genai.GenerativeModel("gemini-1.5-pro-latest")  # Using Gemini-Pro model
         response = model.generate_content(prompt)
         return response.text.strip()
     except Exception as e:
