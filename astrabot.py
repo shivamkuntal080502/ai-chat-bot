@@ -25,7 +25,7 @@ def safe_rerun():
 # --- Helper Functions ---
 def chat(query):
     try:
-        model = genai.GenerativeModel("gemini-pro")
+        model = genai.GenerativeModel("gemini-1.5-pro-latest")
         response = model.generate_content(query)
         return response.text.strip()
     except Exception as e:
