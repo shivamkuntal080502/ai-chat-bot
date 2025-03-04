@@ -5,6 +5,9 @@ import requests
 import streamlit as st
 import google.generativeai as genai
 import nltk
+import re
+import threading
+from plyer import notification  # Desktop notification library
 
 # --- Setup Gemini API Key (Hardcoded) ---
 genai.configure(api_key="")
@@ -58,6 +61,47 @@ def get_system_prompt(user_name):
     return (f"You are Vertex, an everyday bot chatting with {user_name}. Provide helpful advice on productivity and time management. "
             "Do not include your name in your responses.")
 
+# --- Notification System Functions ---
+def send_notification(title, message):
+    notification.notify(
+        title=title,
+        message=message,
+        app_name='Vertex Bot',
+        timeout=10  # seconds
+    )
+
+def schedule_notification(reminder_time, task):
+    current_time = datetime.datetime.now()
+    delay = (reminder_time - current_time).total_seconds()
+    if delay < 0:
+        # If the time has already passed, trigger immediately.
+        delay = 0
+    # Schedule the notification in a background thread.
+    threading.Timer(delay, lambda: send_notification("Reminder", task)).start()
+
+def parse_reminder(message):
+    """
+    Expects message in the format:
+    "remind me to [task] at [HH:MM]"
+    """
+    pattern = r"remind me to (.+?) at (\d{1,2}:\d{2})"
+    match = re.search(pattern, message.lower())
+    if match:
+        task = match.group(1).strip()
+        time_str = match.group(2).strip()
+        now = datetime.datetime.now()
+        try:
+            reminder_time = datetime.datetime.strptime(time_str, "%H:%M")
+            # Set the reminder time to today
+            reminder_time = reminder_time.replace(year=now.year, month=now.month, day=now.day)
+            # If the time is already past today, assume it’s for tomorrow.
+            if reminder_time < now:
+                reminder_time += datetime.timedelta(days=1)
+            return task, reminder_time
+        except ValueError:
+            return None, None
+    return None, None
+
 def main():
     # -------------------- Custom CSS --------------------
     st.markdown(
@@ -109,6 +153,7 @@ def main():
             - Type your query or command in the text box.
             - Special commands you can try:
                 - `joke` - Ask for a joke.
+                - `remind me to [task] at [HH:MM]` - Set a reminder.
             """
         )
         if st.button("Clear Conversation"):
@@ -155,16 +200,22 @@ def main():
 
     if submit_button and user_message.strip() != "":
         st.session_state.messages.append(("user", user_message.strip()))
+        lower_msg = user_message.lower()
 
-        # Show a spinner with "Vertex is thinking..." while processing.
-        with st.spinner("Vertex is thinking..."):
-            time.sleep(1)  # Simulate processing delay
-            lower_msg = user_message.lower()
+        # Check if the user is asking for a reminder
+        if "remind me" in lower_msg:
+            task, reminder_time = parse_reminder(user_message)
+            if task and reminder_time:
+                schedule_notification(reminder_time, task)
+                response = f"Okay, I will remind you to {task} at {reminder_time.strftime('%H:%M')}."
+            else:
+                response = "I couldn't understand the reminder. Please use the format: 'remind me to [task] at [HH:MM]'."
+        else:
             # Special case: if the user asks for a joke
             if "joke" in lower_msg:
                 response = get_joke()
             else:
-                # Build conversation prompt using markers without duplicating "Vertex:".
+                # Build conversation prompt using markers.
                 prompt = ""
                 for speaker, msg in st.session_state.messages:
                     if speaker == "user":
