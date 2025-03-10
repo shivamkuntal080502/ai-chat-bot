@@ -99,17 +99,43 @@ def get_time():
     now = datetime.datetime.now()
     return f"The current time is {now.strftime('%H:%M:%S')}"
 
-def resolve_to_absolute(path_fragment):
-    if os.path.isabs(path_fragment):
-        return path_fragment
-    base_dir = r"C:\Users\ASUS\Desktop"  # Adjust to your desired base directory
-    return os.path.join(base_dir, path_fragment)
+# --- New Recursive Search Functions ---
+def find_file(file_name, search_root="C:\\"):
+    """
+    Recursively search for a file starting at search_root.
+    Returns the full path if found; otherwise, returns None.
+    """
+    for root, dirs, files in os.walk(search_root):
+        if file_name in files:
+            return os.path.join(root, file_name)
+    return None
 
+def find_directory(dir_name, search_root="C:\\"):
+    """
+    Recursively search for a directory starting at search_root.
+    Returns the full path if found; otherwise, returns None.
+    """
+    for root, dirs, files in os.walk(search_root):
+        if dir_name in dirs:
+            return os.path.join(root, dir_name)
+    return None
+
+# --- List files in a directory ---
 def list_files_in_directory(directory_path):
     try:
         return os.listdir(directory_path)
     except Exception as e:
         return f"Error listing files in directory: {str(e)}"
+
+# --- List scholarship files without descriptions ---
+def list_scholarship_files(directory_path):
+    files = list_files_in_directory(directory_path)
+    if not isinstance(files, list):
+        return files
+    result = []
+    for item in files:
+        result.append(f"* **{item}**")
+    return "\n".join(result)
 
 def transcribe_audio(audio_file):
     recognizer = sr.Recognizer()
@@ -130,28 +156,6 @@ def transcribe_audio(audio_file):
     except Exception as e:
         st.error(f"Error transcribing audio: {e}")
         return None
-
-def list_scholarship_files(directory_path):
-    descriptions = {
-        "scholarship.py": "the main script that runs the scholarship program",
-        "data.py": "a module that handles the data for the scholarship program",
-        "forms.py": "a module that handles the forms for the scholarship program",
-        "models.py": "a module that handles the models for the scholarship program",
-        "routes.py": "a module that handles the routes for the scholarship program",
-        "templates": "a directory that contains the templates for the scholarship program",
-        "static": "a directory that contains the static files for the scholarship program"
-    }
-    files = list_files_in_directory(directory_path)
-    if not isinstance(files, list):
-        return files
-    result = []
-    for item in files:
-        desc = descriptions.get(item, "")
-        if desc:
-            result.append(f"* **{item}** - {desc}")
-        else:
-            result.append(f"* **{item}**")
-    return "\n".join(result)
 
 # --- Encapsulate the Main Code into a Function ---
 def main():
@@ -253,19 +257,24 @@ def main():
             lower_query = query.lower()
             response = ""
             if lower_query.startswith("list of all files in scholarship"):
-                folder_path = resolve_to_absolute("scholarship")
-                if not os.path.isdir(folder_path):
-                    response = f"The folder '{folder_path}' does not exist on your system."
+                # Search for the 'scholarship' directory recursively.
+                scholarship_dir = find_directory("scholarship")
+                if not scholarship_dir:
+                    response = "The 'scholarship' folder was not found on your system."
                 else:
-                    response = list_scholarship_files(folder_path)
+                    response = list_scholarship_files(scholarship_dir)
             elif lower_query.startswith("list all files in"):
                 folder_fragment = query[len("list all files in"):].strip()
                 if not folder_fragment:
                     response = "Please provide a folder name or path after the command."
                 else:
-                    folder_path = resolve_to_absolute(folder_fragment)
-                    if not os.path.isdir(folder_path):
-                        response = f"The folder '{folder_path}' does not exist on your system."
+                    # If an absolute path is provided, use it; otherwise, search recursively.
+                    if os.path.isabs(folder_fragment):
+                        folder_path = folder_fragment
+                    else:
+                        folder_path = find_directory(folder_fragment)
+                    if not folder_path or not os.path.isdir(folder_path):
+                        response = f"The folder '{folder_fragment}' was not found on your system."
                     else:
                         files = list_files_in_directory(folder_path)
                         if isinstance(files, list):
@@ -277,9 +286,13 @@ def main():
                 if not file_fragment:
                     response = "Please provide a file name or path after the command."
                 else:
-                    file_path = resolve_to_absolute(file_fragment)
-                    if not file_exists(file_path):
-                        response = f"The file '{file_path}' does not exist on your system."
+                    # If an absolute path is provided, use it; otherwise, search recursively.
+                    if os.path.isabs(file_fragment):
+                        file_path = file_fragment
+                    else:
+                        file_path = find_file(file_fragment)
+                    if not file_path or not file_exists(file_path):
+                        response = f"The file '{file_fragment}' was not found on your system."
                     else:
                         file_content = read_file(file_path)
                         if file_content:
