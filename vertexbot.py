@@ -13,13 +13,13 @@ from email.mime.multipart import MIMEMultipart
 from plyer import notification  # Desktop notification library
 
 # --- Email Configuration (Update these with your credentials) ---
-EMAIL_SENDER = "kuntals005@gmail.com"       # Replace with your sender email
-EMAIL_PASSWORD = "asbt lzzq zdjh evjr"        # Replace with your email password or app-specific password
-SMTP_SERVER = "smtp.gmail.com"                # For Gmail; change if using another provider
+EMAIL_SENDER = ""       # Replace with your sender email
+EMAIL_PASSWORD = ""        # Replace with your email password or app-specific password
+SMTP_SERVER = ""                # For Gmail; change if using another provider
 SMTP_PORT = 465                               # For Gmail SMTP SSL
 
 # --- Setup Gemini API Key (Hardcoded) ---
-genai.configure(api_key="AIzaSyDt3AoT4n_Tin-0BvIWYv95oPbxWbyqXo8")
+genai.configure(api_key="")
 
 # --- Download necessary NLTK packages ---
 nltk.download('punkt')
