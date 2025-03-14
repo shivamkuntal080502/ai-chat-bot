@@ -13,13 +13,13 @@ from email.mime.multipart import MIMEMultipart
 from plyer import notification  # Desktop notification library
 
 # --- Email Configuration (Update these with your credentials) ---
-EMAIL_SENDER = ""       # Replace with your sender email
-EMAIL_PASSWORD = ""            # Replace with your email password or app-specific password
-SMTP_SERVER = "smtp.gmail.com"              # For Gmail; change if using another provider
-SMTP_PORT = 465                             # For Gmail SMTP SSL
+EMAIL_SENDER = "kuntals005@gmail.com"       # Replace with your sender email
+EMAIL_PASSWORD = "asbt lzzq zdjh evjr"        # Replace with your email password or app-specific password
+SMTP_SERVER = "smtp.gmail.com"                # For Gmail; change if using another provider
+SMTP_PORT = 465                               # For Gmail SMTP SSL
 
 # --- Setup Gemini API Key (Hardcoded) ---
-genai.configure(api_key="")
+genai.configure(api_key="AIzaSyDt3AoT4n_Tin-0BvIWYv95oPbxWbyqXo8")
 
 # --- Download necessary NLTK packages ---
 nltk.download('punkt')
@@ -59,11 +59,17 @@ def get_joke():
 # Function to generate responses using Gemini AI (Vertex bot)
 def generate_api_response(prompt):
     try:
-        model = genai.GenerativeModel("gemini-1.5-pro-latest")  # Using Gemini-Pro model
+        # Using Gemini 2.0 Flash model
+        model = genai.GenerativeModel("gemini-2.0-flash")
         response = model.generate_content(prompt)
         return response.text.strip()
     except Exception as e:
-        return f"Error generating response: {str(e)}"
+        error_message = str(e)
+        # Check for rate limit errors by keyword or HTTP 429 status if available.
+        if "rate limit" in error_message.lower() or (hasattr(e, "response") and getattr(e, "response").status_code == 429):
+            return "The Gemini API rate limit has been reached. Please try again later."
+        else:
+            return f"Error generating response: {error_message}"
 
 # Function to get the system prompt for the Vertex bot.
 def get_system_prompt(user_name):
@@ -113,21 +119,30 @@ def schedule_email_notification(reminder_time, task, user_email):
 
 def parse_reminder(message):
     """
-    Expects message in the format:
-    "remind me to [task] at [HH:MM]"
+    Expects message in one of the following formats:
+    "remind me to [task] at HH:MM"
+    or
+    "remind me to [task] at HH:MM on DD:MM:YYYY"
     """
-    pattern = r"remind me to (.+?) at (\d{1,2}:\d{2})"
+    pattern = r"remind me to (.+?) at (\d{1,2}:\d{2})(?: on (\d{1,2}:\d{1,2}:\d{4}))?"
     match = re.search(pattern, message.lower())
     if match:
         task = match.group(1).strip()
         time_str = match.group(2).strip()
+        date_str = match.group(3).strip() if match.group(3) else None
         now = datetime.datetime.now()
         try:
-            reminder_time = datetime.datetime.strptime(time_str, "%H:%M")
-            # Set the reminder time to today
-            reminder_time = reminder_time.replace(year=now.year, month=now.month, day=now.day)
-            # If the time is already past today, assume it’s for tomorrow.
-            if reminder_time < now:
+            # Convert time string to a time object
+            time_obj = datetime.datetime.strptime(time_str, "%H:%M").time()
+            if date_str:
+                # Parse the provided date in DD:MM:YYYY format
+                reminder_date = datetime.datetime.strptime(date_str, "%d:%m:%Y").date()
+            else:
+                reminder_date = now.date()
+            # Combine the date and time to get the full reminder datetime
+            reminder_time = datetime.datetime.combine(reminder_date, time_obj)
+            # If no date is provided and the time is already passed today, schedule for tomorrow.
+            if not date_str and reminder_time < now:
                 reminder_time += datetime.timedelta(days=1)
             return task, reminder_time
         except ValueError:
@@ -185,7 +200,8 @@ def main():
             - Type your query or command in the text box.
             - Special commands you can try:
                 - `joke` - Ask for a joke.
-                - `remind me to [task] at [HH:MM]` - Set a reminder (both desktop & email).
+                - `remind me to [task] at HH:MM` - Set a reminder (desktop & email).
+                - `remind me to [task] at HH:MM on DD:MM:YYYY` - Set a reminder for a specific date.
             """
         )
         if st.button("Clear Conversation"):
@@ -255,9 +271,9 @@ def main():
                 # Schedule email notification using the provided email.
                 schedule_email_notification(reminder_time, task, st.session_state.user_email)
                 response = (f"Okay, I will remind you to {task} at {reminder_time.strftime('%H:%M')} "
-                            f"via desktop notification and an email to {st.session_state.user_email}.")
+                            f"on {reminder_time.strftime('%d:%m:%Y')} via desktop notification and an email to {st.session_state.user_email}.")
             else:
-                response = "I couldn't understand the reminder. Please use the format: 'remind me to [task] at [HH:MM]'."
+                response = "I couldn't understand the reminder. Please use the format: 'remind me to [task] at HH:MM' or 'remind me to [task] at HH:MM on DD:MM:YYYY'."
         else:
             # Special case: if the user asks for a joke
             if "joke" in lower_msg:
