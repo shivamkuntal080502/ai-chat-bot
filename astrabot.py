@@ -99,35 +99,24 @@ def get_time():
     now = datetime.datetime.now()
     return f"The current time is {now.strftime('%H:%M:%S')}"
 
-# --- New Recursive Search Functions ---
 def find_file(file_name, search_root="C:\\"):
-    """
-    Recursively search for a file starting at search_root.
-    Returns the full path if found; otherwise, returns None.
-    """
     for root, dirs, files in os.walk(search_root):
         if file_name in files:
             return os.path.join(root, file_name)
     return None
 
 def find_directory(dir_name, search_root="C:\\"):
-    """
-    Recursively search for a directory starting at search_root.
-    Returns the full path if found; otherwise, returns None.
-    """
     for root, dirs, files in os.walk(search_root):
         if dir_name in dirs:
             return os.path.join(root, dir_name)
     return None
 
-# --- List files in a directory ---
 def list_files_in_directory(directory_path):
     try:
         return os.listdir(directory_path)
     except Exception as e:
         return f"Error listing files in directory: {str(e)}"
 
-# --- List scholarship files without descriptions ---
 def list_scholarship_files(directory_path):
     files = list_files_in_directory(directory_path)
     if not isinstance(files, list):
@@ -157,15 +146,34 @@ def transcribe_audio(audio_file):
         st.error(f"Error transcribing audio: {e}")
         return None
 
-# --- Encapsulate the Main Code into a Function ---
-def main():
-    # --- Streamlit Session State Initialization ---
-    if 'messages' not in st.session_state:
-        st.session_state.messages = []  # Each message is a tuple (speaker, message)
-    if 'input_mode' not in st.session_state:
-        st.session_state.input_mode = None  # "Text" or "Audio"
+def transcribe_microphone():
+    r = sr.Recognizer()
+    try:
+        with sr.Microphone() as source:
+            with st.spinner("Listening..."):
+                audio = r.listen(source, timeout=5)
+        try:
+            text = r.recognize_google(audio)
+            return text
+        except sr.UnknownValueError:
+            st.error("Could not understand audio")
+            return None
+        except sr.RequestError as e:
+            st.error(f"Error: {e}")
+            return None
+    except OSError:
+        st.error("No microphone detected. Please ensure a microphone is connected.")
+        return None
 
-    # --- Custom CSS for Better UI ---
+# --- Main Function ---
+def main():
+    # --- Session State Initialization ---
+    if 'messages' not in st.session_state:
+        st.session_state.messages = []
+    if 'user_input' not in st.session_state:
+        st.session_state.user_input = ""
+
+    # --- Custom CSS ---
     st.markdown(
         """
         <style>
@@ -194,20 +202,22 @@ def main():
         .message p {
             margin: 0;
         }
+        .stButton>button {
+            width: 100%;
+        }
         </style>
         """,
         unsafe_allow_html=True
     )
 
-    # --- Sidebar with Instructions and Actions ---
+    # --- Sidebar ---
     with st.sidebar:
         st.header("Astra S-1 Assistant")
         st.info(
             """
             **Instructions:**
-            - Choose your input mode (Text or Audio).
-            - Type your query or upload an audio file.
-            - Special commands include:
+            - Type your query or use the microphone
+            - Special commands:
                 - `list of all files in scholarship`
                 - `list all files in <folder>`
                 - `extract data from <file>`
@@ -218,20 +228,19 @@ def main():
         if st.button("Clear Conversation"):
             st.session_state.messages = []
             safe_rerun()
+        
+        # Audio file uploader in sidebar
+        uploaded_audio = st.file_uploader("Upload Audio File", type=["wav", "mp3", "ogg", "m4a"])
+        if uploaded_audio:
+            transcribed_text = transcribe_audio(uploaded_audio)
+            if transcribed_text:
+                st.session_state.user_input = transcribed_text
+                safe_rerun()
 
-    # --- Main UI Layout ---
+    # --- Main Interface ---
     st.title("Astra S-1: Your Personal AI Assistant")
 
-    # Choose input mode if not already chosen
-    if st.session_state.input_mode is None:
-        st.subheader("Choose your input mode:")
-        mode = st.radio("Select Input Mode:", options=["Text", "Audio"])
-        if st.button("Confirm Mode"):
-            st.session_state.input_mode = mode
-            safe_rerun()
-
-    # --- Chat Conversation Area ---
-    st.markdown("### Conversation")
+    # --- Chat Display ---
     chat_container = st.container()
     with chat_container:
         if st.session_state.messages:
@@ -249,15 +258,32 @@ def main():
         else:
             st.info("Your conversation will appear here.")
 
-    # --- Processing Functions ---
+    # --- Input Section ---
+    col1, col2 = st.columns([5, 1])
+    with col1:
+        with st.form(key='text_form', clear_on_submit=True):
+            user_input = st.text_input(
+                "Type or speak your query",
+                value=st.session_state.user_input,
+                key="user_input_widget",
+                placeholder="Ask me anything..."
+            )
+            submitted = st.form_submit_button("Send")
+    with col2:
+        if st.button("🎤", help="Press and speak"):
+            transcribed_text = transcribe_microphone()
+            if transcribed_text:
+                st.session_state.user_input = transcribed_text
+                safe_rerun()
+
+    # --- Process Query ---
     def process_query(query):
         st.session_state.messages.append(("You", query))
         with st.spinner("Astra is thinking..."):
-            time.sleep(1)  # Simulate processing delay
+            time.sleep(0.5)  # Simulate processing delay
             lower_query = query.lower()
             response = ""
             if lower_query.startswith("list of all files in scholarship"):
-                # Search for the 'scholarship' directory recursively.
                 scholarship_dir = find_directory("scholarship")
                 if not scholarship_dir:
                     response = "The 'scholarship' folder was not found on your system."
@@ -268,7 +294,6 @@ def main():
                 if not folder_fragment:
                     response = "Please provide a folder name or path after the command."
                 else:
-                    # If an absolute path is provided, use it; otherwise, search recursively.
                     if os.path.isabs(folder_fragment):
                         folder_path = folder_fragment
                     else:
@@ -286,7 +311,6 @@ def main():
                 if not file_fragment:
                     response = "Please provide a file name or path after the command."
                 else:
-                    # If an absolute path is provided, use it; otherwise, search recursively.
                     if os.path.isabs(file_fragment):
                         file_path = file_fragment
                     else:
@@ -298,7 +322,7 @@ def main():
                         if file_content:
                             response = f"Content of the file:\n{file_content}"
                         else:
-                            response = "Error! The file exists but could not be read (unsupported type or read error)."
+                            response = "Error! The file exists but could not be read."
             elif "open youtube" in lower_query:
                 response = "Opening YouTube..."
                 webbrowser.open("https://www.youtube.com")
@@ -313,33 +337,18 @@ def main():
             else:
                 response = chat(query)
             st.session_state.messages.append(("Astra", response))
+        st.session_state.user_input = ""
         safe_rerun()
 
-    # --- Input Section ---
-    if st.session_state.input_mode == "Text":
-        with st.form(key="text_form", clear_on_submit=True):
-            user_input = st.text_input("Enter your query here", placeholder="Ask me anything...")
-            submit_button = st.form_submit_button("Send")
-        if submit_button and user_input:
-            process_query(user_input)
-    elif st.session_state.input_mode == "Audio":
-        st.info("Upload an audio file (WAV, MP3, OGG, or M4A) for speech-to-text conversion.")
-        audio_file = st.file_uploader("Upload Audio:", type=["wav", "mp3", "ogg", "m4a"])
-        if audio_file is not None:
-            transcribed_text = transcribe_audio(audio_file)
-            if transcribed_text:
-                st.success(f"Transcription: {transcribed_text}")
-                if st.button("Send Query"):
-                    process_query(transcribed_text)
+    if submitted and user_input:
+        process_query(user_input)
 
     st.markdown("---")
     st.markdown(
         """
-        **Note:** This app runs in a controlled environment. If you host it on a public server (e.g. Streamlit Cloud), 
-        it will not have direct access to your local computer files. For local testing, please run this app on your own machine.
+        **Note:** This app runs in a controlled environment. For full file access, run locally.
         """
     )
 
-# --- Execution Guard ---
 if __name__ == "__main__":
     main()
