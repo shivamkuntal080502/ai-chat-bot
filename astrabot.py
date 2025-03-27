@@ -3,6 +3,7 @@ import time
 import datetime
 import webbrowser
 import io
+import base64
 import streamlit as st
 import google.generativeai as genai
 from config import GEMINI_API_KEY
@@ -11,6 +12,8 @@ import fitz  # PyMuPDF for PDF files
 import pandas as pd
 import speech_recognition as sr
 from pydub import AudioSegment
+from gtts import gTTS  # For text-to-speech conversion
+import streamlit.components.v1 as components
 
 # --- Configure Gemini API ---
 genai.configure(api_key=GEMINI_API_KEY)
@@ -165,6 +168,38 @@ def transcribe_microphone():
         st.error("No microphone detected. Please ensure a microphone is connected.")
         return None
 
+def play_audio_with_delay(audio_bytes, delay=10000):
+    """
+    Converts audio bytes to base64 and creates an HTML audio element that auto-plays after a delay.
+    Also listens for key events: "p" to play, "s" to stop.
+    Returns the HTML string so it can be stored and rendered persistently.
+    """
+    b64_audio = base64.b64encode(audio_bytes.read()).decode()
+    audio_html = f"""
+    <audio id="tts-audio" controls src="data:audio/mp3;base64,{b64_audio}"></audio>
+    <script>
+    // Auto-play after delay
+    setTimeout(function() {{
+       var audio = document.getElementById("tts-audio");
+       if(audio) {{
+          audio.play();
+       }}
+    }}, {delay});
+
+    // Listen for key events: p to play, s to pause
+    document.addEventListener('keydown', function(e) {{
+      var audio = document.getElementById("tts-audio");
+      if(!audio) return;
+      if(e.key === 'p' || e.key === 'P') {{
+         audio.play();
+      }} else if(e.key === 's' || e.key === 'S') {{
+         audio.pause();
+      }}
+    }});
+    </script>
+    """
+    return audio_html
+
 # --- Main Function ---
 def main():
     # --- Session State Initialization ---
@@ -172,6 +207,9 @@ def main():
         st.session_state.messages = []
     if 'user_input' not in st.session_state:
         st.session_state.user_input = ""
+    # Store generated audio HTML so that it persists in the layout.
+    if 'tts_audio' not in st.session_state:
+        st.session_state.tts_audio = ""
 
     # --- Custom CSS ---
     st.markdown(
@@ -216,20 +254,23 @@ def main():
         st.info(
             """
             **Instructions:**
-            - Type your query or use the microphone
+            - Type your query or use the microphone.
             - Special commands:
-                - `list of all files in scholarship`
-                - `list all files in <folder>`
-                - `extract data from <file>`
-                - `open youtube`, `open google`, `open wikipedia`
-                - `time`
+                - list of all files in scholarship
+                - list all files in <folder>
+                - extract data from <file>
+                - open youtube, open google, open wikipedia
+                - time
             """
         )
         if st.button("Clear Conversation"):
             st.session_state.messages = []
             safe_rerun()
+
+        # Checkbox for read aloud option.
+        st.checkbox("Read bot responses aloud", key="read_aloud", value=False)
         
-        # Audio file uploader in sidebar
+        # Audio file uploader in sidebar.
         uploaded_audio = st.file_uploader("Upload Audio File", type=["wav", "mp3", "ogg", "m4a"])
         if uploaded_audio:
             transcribed_text = transcribe_audio(uploaded_audio)
@@ -257,6 +298,10 @@ def main():
                     )
         else:
             st.info("Your conversation will appear here.")
+
+    # Render the TTS audio HTML if available.
+    if st.session_state.tts_audio:
+        components.html(st.session_state.tts_audio, height=200)
 
     # --- Input Section ---
     col1, col2 = st.columns([5, 1])
@@ -337,6 +382,20 @@ def main():
             else:
                 response = chat(query)
             st.session_state.messages.append(("Astra", response))
+            
+            # If the read aloud option is enabled, convert the bot response to speech.
+            if st.session_state.get("read_aloud", False):
+                try:
+                    tts = gTTS(response)
+                    audio_bytes = io.BytesIO()
+                    tts.write_to_fp(audio_bytes)
+                    audio_bytes.seek(0)
+                    # Generate HTML for the audio player with delay and key controls.
+                    audio_html = play_audio_with_delay(audio_bytes, delay=2000)
+                    # Store it in session state so it persists.
+                    st.session_state.tts_audio = audio_html
+                except Exception as e:
+                    st.error(f"Error in text-to-speech conversion: {e}")
         st.session_state.user_input = ""
         safe_rerun()
 
@@ -351,4 +410,4 @@ def main():
     )
 
 if __name__ == "__main__":
-    main()
+    main()  
