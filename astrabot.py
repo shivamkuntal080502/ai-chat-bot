@@ -18,6 +18,19 @@ import streamlit.components.v1 as components
 # --- Configure Gemini API ---
 genai.configure(api_key=GEMINI_API_KEY)
 
+# --- New Helper Function for Entity Extraction ---
+def extract_entity(query, instruction):
+    """Uses Gemini to extract folder/file names from natural language queries."""
+    try:
+        prompt = f"{instruction}\nQuery: {query}\nExtracted name:"
+        model = genai.GenerativeModel("gemini-2.0-flash")
+        response = model.generate_content(prompt)
+        cleaned_response = response.text.strip().strip('"').strip("'").split('\n')[0]
+        return cleaned_response
+    except Exception as e:
+        st.error(f"Extraction error: {str(e)}")
+        return None
+
 # --- Safe Rerun Helper ---
 def safe_rerun():
     if hasattr(st, "experimental_rerun"):
@@ -200,6 +213,96 @@ def play_audio_with_delay(audio_bytes, delay=10000):
     """
     return audio_html
 
+# --- Modified Process Query Function ---
+def process_query(query):
+    st.session_state.messages.append(("You", query))
+    with st.spinner("Astra is thinking..."):
+        time.sleep(0.5)
+        lower_query = query.lower()
+        response = ""
+        
+        # Handle core commands
+        if "open youtube" in lower_query:
+            webbrowser.open("https://www.youtube.com")
+            response = "Opening YouTube..."
+        elif "open google" in lower_query:
+            webbrowser.open("https://www.google.com")
+            response = "Opening Google..."
+        elif "open wikipedia" in lower_query:
+            webbrowser.open("https://www.wikipedia.org")
+            response = "Opening Wikipedia..."
+        elif "time" in lower_query:
+            response = get_time()
+            
+        # Handle list files requests
+        elif "list" in lower_query and "files" in lower_query:
+            folder_instruction = """Extract the folder/file name from queries about listing files.
+Return ONLY the name without additional text. Examples:
+- Query: 'Show files in Documents' -> 'Documents'"""
+                
+            folder_name = extract_entity(query, folder_instruction)
+            if not folder_name:
+                response = "Could not determine folder name from your query."
+            else:
+                if os.path.isabs(folder_name):
+                    target_dir = folder_name
+                else:
+                    target_dir = find_directory(folder_name)
+                
+                if not target_dir:
+                    response = f"Folder '{folder_name}' not found!"
+                else:
+                    files = list_files_in_directory(target_dir)
+                    if isinstance(files, list):
+                        formatted = "\n".join([f"* **{f}**" for f in files])
+                        response = f"Files in **{target_dir}**:\n{formatted}"
+                    else:
+                        response = files
+        
+        # Handle data extraction requests
+        elif "extract" in lower_query and "data" in lower_query:
+            file_instruction = """Extract the file/folder name from data extraction queries.
+Return ONLY the name without additional text. Examples:
+- Query: 'Get data from report.pdf' -> 'report.pdf'"""
+            
+            file_name = extract_entity(query, file_instruction)
+            if not file_name:
+                response = "Could not determine file name from your query."
+            else:
+                if os.path.isabs(file_name):
+                    target_file = file_name
+                else:
+                    target_file = find_file(file_name)
+                
+                if not target_file:
+                    response = f"File '{file_name}' not found!"
+                else:
+                    content = read_file(target_file)
+                    response = f"**{target_file}** contents:\n\n{content}" if content else "Error reading file"
+        
+        # General Gemini response
+        else:
+            response = chat(query)
+        
+        st.session_state.messages.append(("Astra", response))
+        
+        # TTS Handling (if enabled)
+        if st.session_state.get("read_aloud", False):
+            try:
+                tts = gTTS(response)
+                audio_bytes = io.BytesIO()
+                tts.write_to_fp(audio_bytes)
+                audio_bytes.seek(0)
+                # Generate HTML for the audio player with delay and key controls.
+                audio_html = play_audio_with_delay(audio_bytes, delay=2000)
+                # Store it in session state so it persists.
+                st.session_state.tts_audio = audio_html
+            except Exception as e:
+                st.error(f"Error in text-to-speech conversion: {e}")
+        
+        st.session_state.user_input = ""
+        safe_rerun()
+
 # --- Main Function ---
 def main():
     # --- Session State Initialization ---
@@ -322,83 +425,6 @@ def main():
                 safe_rerun()
 
     # --- Process Query ---
-    def process_query(query):
-        st.session_state.messages.append(("You", query))
-        with st.spinner("Astra is thinking..."):
-            time.sleep(0.5)  # Simulate processing delay
-            lower_query = query.lower()
-            response = ""
-            if lower_query.startswith("list of all files in scholarship"):
-                scholarship_dir = find_directory("scholarship")
-                if not scholarship_dir:
-                    response = "The 'scholarship' folder was not found on your system."
-                else:
-                    response = list_scholarship_files(scholarship_dir)
-            elif lower_query.startswith("list all files in"):
-                folder_fragment = query[len("list all files in"):].strip()
-                if not folder_fragment:
-                    response = "Please provide a folder name or path after the command."
-                else:
-                    if os.path.isabs(folder_fragment):
-                        folder_path = folder_fragment
-                    else:
-                        folder_path = find_directory(folder_fragment)
-                    if not folder_path or not os.path.isdir(folder_path):
-                        response = f"The folder '{folder_fragment}' was not found on your system."
-                    else:
-                        files = list_files_in_directory(folder_path)
-                        if isinstance(files, list):
-                            response = "Files in the directory:\n" + "\n".join([f"- {f}" for f in files])
-                        else:
-                            response = files
-            elif lower_query.startswith("extract data from"):
-                file_fragment = query[len("extract data from"):].strip()
-                if not file_fragment:
-                    response = "Please provide a file name or path after the command."
-                else:
-                    if os.path.isabs(file_fragment):
-                        file_path = file_fragment
-                    else:
-                        file_path = find_file(file_fragment)
-                    if not file_path or not file_exists(file_path):
-                        response = f"The file '{file_fragment}' was not found on your system."
-                    else:
-                        file_content = read_file(file_path)
-                        if file_content:
-                            response = f"Content of the file:\n{file_content}"
-                        else:
-                            response = "Error! The file exists but could not be read."
-            elif "open youtube" in lower_query:
-                response = "Opening YouTube..."
-                webbrowser.open("https://www.youtube.com")
-            elif "open google" in lower_query:
-                response = "Opening Google..."
-                webbrowser.open("https://www.google.com")
-            elif "open wikipedia" in lower_query:
-                response = "Opening Wikipedia..."
-                webbrowser.open("https://www.wikipedia.org")
-            elif "time" in lower_query:
-                response = get_time()
-            else:
-                response = chat(query)
-            st.session_state.messages.append(("Astra", response))
-            
-            # If the read aloud option is enabled, convert the bot response to speech.
-            if st.session_state.get("read_aloud", False):
-                try:
-                    tts = gTTS(response)
-                    audio_bytes = io.BytesIO()
-                    tts.write_to_fp(audio_bytes)
-                    audio_bytes.seek(0)
-                    # Generate HTML for the audio player with delay and key controls.
-                    audio_html = play_audio_with_delay(audio_bytes, delay=2000)
-                    # Store it in session state so it persists.
-                    st.session_state.tts_audio = audio_html
-                except Exception as e:
-                    st.error(f"Error in text-to-speech conversion: {e}")
-        st.session_state.user_input = ""
-        safe_rerun()
-
     if submitted and user_input:
         process_query(user_input)
 
@@ -410,4 +436,4 @@ def main():
     )
 
 if __name__ == "__main__":
-    main()  
+    main()
